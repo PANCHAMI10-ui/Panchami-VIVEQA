@@ -1,0 +1,68 @@
+`timescale 1ns / 1ps
+
+module tb_largest_digit_fsm;
+
+    reg clk;
+    reg reset;
+    reg [1:0] in_digit;
+    wire [1:0] max_out;
+
+    // Instantiate the DUT
+    largest_digit_fsm uut (
+        .clk(clk),
+        .reset(reset),
+        .in_digit(in_digit),
+        .max_out(max_out)
+    );
+
+    // Clock Generation (10 ns period)
+    initial begin
+        clk = 0;
+        forever #5 clk = ~clk;
+    end
+
+    // Task to apply one input digit
+    task apply_digit;
+        input [1:0] digit;
+        begin
+            in_digit = digit;
+            #10;
+        end
+    endtask
+
+    // Test Sequence
+    initial begin
+        // Initialize
+        reset = 1;
+        in_digit = 2'b00;
+
+        #20;
+        reset = 0;
+
+        // Input sequence: 0 0 1 0 3 2
+        // Expected output: 0 0 1 1 3 3
+
+        apply_digit(2'b00);   // 0
+        apply_digit(2'b00);   // 0
+        apply_digit(2'b01);   // 1
+        apply_digit(2'b00);   // 0
+        apply_digit(2'b11);   // 3
+        apply_digit(2'b10);   // 2
+
+        // Additional test
+        apply_digit(2'b01);   // 1
+        apply_digit(2'b11);   // 3
+        apply_digit(2'b00);   // 0
+
+        #20;
+        $finish;
+    end
+
+    // Display Results
+    initial begin
+        $display("Time\tReset\tInput\tMax_Output");
+        $monitor("%0t\t%b\t%0d\t%0d",
+                 $time, reset, in_digit, max_out);
+    end
+
+endmodule
