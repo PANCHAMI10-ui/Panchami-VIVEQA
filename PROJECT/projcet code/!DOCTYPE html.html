@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Smart Parking System</title>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:Arial,sans-serif;background:#0a0a1a;color:#fff;min-height:100vh;padding:20px 16px;}
+
+/* Header */
+.header{text-align:center;margin-bottom:28px;}
+.header h1{font-size:32px;font-weight:700;background:linear-gradient(90deg,#e94560,#f7a1b0);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:4px;}
+.header p{color:#555;font-size:13px;}
+.header .time{font-size:12px;color:#444;margin-top:6px;}
+
+/* Stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;max-width:720px;margin:0 auto 28px;}
+.stat{background:#111827;border:1px solid #1e2a40;border-radius:12px;padding:16px;text-align:center;position:relative;overflow:hidden;}
+.stat::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;}
+.stat.s1::before{background:#e94560;}
+.stat.s2::before{background:#2ecc71;}
+.stat.s3::before{background:#3498db;}
+.stat.s4::before{background:#f39c12;}
+.stat .val{font-size:28px;font-weight:700;margin-bottom:4px;}
+.stat .lbl{font-size:11px;color:#555;text-transform:uppercase;letter-spacing:1px;}
+.stat.s1 .val{color:#e94560;}
+.stat.s2 .val{color:#2ecc71;}
+.stat.s3 .val{color:#3498db;}
+.stat.s4 .val{color:#f39c12;}
+
+/* Slot grid */
+.section-title{text-align:center;font-size:11px;color:#444;text-transform:uppercase;letter-spacing:2px;margin-bottom:14px;}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;max-width:720px;margin:0 auto 28px;}
+.slot{background:#111827;border:1.5px solid #1e2a40;border-radius:16px;padding:20px 10px;text-align:center;cursor:pointer;transition:all 0.2s;position:relative;}
+.slot:hover{transform:translateY(-3px);border-color:#2a3a60;}
+.slot.occ{background:#1a0a14;border-color:#e94560;}
+.slot.occ:hover{border-color:#ff6b84;}
+.slot-num{position:absolute;top:8px;left:10px;font-size:10px;color:#333;font-weight:600;}
+.circle{width:42px;height:42px;border-radius:50%;margin:0 auto 10px;position:relative;}
+.circle.free{background:#0d3320;border:2px solid #2ecc71;}
+.circle.busy{background:#3a0d1a;border:2px solid #e94560;}
+.circle::after{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:16px;height:16px;border-radius:50%;}
+.circle.free::after{background:#2ecc71;}
+.circle.busy::after{background:#e94560;}
+.snum{font-size:13px;font-weight:700;color:#ddd;}
+.sstate{font-size:10px;margin-top:3px;font-weight:600;letter-spacing:0.5px;}
+.slot.occ .sstate{color:#e94560;}
+.slot:not(.occ) .sstate{color:#2ecc71;}
+.stime{font-size:9px;color:#333;margin-top:5px;min-height:11px;}
+
+/* Log */
+.logsec{background:#111827;border:1px solid #1e2a40;border-radius:14px;padding:18px;max-width:720px;margin:0 auto 20px;}
+.log-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
+.log-header h2{font-size:12px;color:#777;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;}
+.log-count{font-size:11px;color:#333;background:#0f1623;padding:3px 10px;border-radius:20px;border:1px solid #1e2a40;}
+table{width:100%;border-collapse:collapse;font-size:12px;}
+th{text-align:left;color:#333;padding:7px 10px;border-bottom:1px solid #1a2035;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;}
+td{padding:8px 10px;border-bottom:1px solid #111827;color:#aaa;}
+td:first-child{color:#ddd;font-weight:600;}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;}
+.badge.parked{background:#0d2a1a;color:#2ecc71;border:1px solid #1a4a2a;}
+.badge.exited{background:#2a0d14;color:#e94560;border:1px solid #4a1a20;}
+.empty{text-align:center;color:#2a2a3a;padding:24px;font-size:12px;}
+
+/* Connection */
+.conn{text-align:center;font-size:12px;color:#333;margin-top:8px;display:flex;align-items:center;justify-content:center;gap:6px;}
+.dot{width:8px;height:8px;border-radius:50%;background:#e94560;display:inline-block;}
+.dot.on{background:#2ecc71;box-shadow:0 0 6px #2ecc71;}
+
+/* Buzzer indicator */
+.buzz-flash{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(46,204,113,0.05);pointer-events:none;opacity:0;transition:opacity 0.1s;}
+.buzz-flash.active{opacity:1;}
+
+@media(max-width:500px){.stats,.grid{grid-template-columns:repeat(2,1fr);}}
+</style>
+</head>
+<body>
+<div class="buzz-flash" id="flash"></div>
+
+<div class="header">
+  <h1>Smart Parking System</h1>
+  <p>Real-time parking management via FPGA</p>
+  <div class="time" id="clock"></div>
+</div>
+
+<div class="stats">
+  <div class="stat s1"><div class="val" id="occ_count">0</div><div class="lbl">Occupied</div></div>
+  <div class="stat s2"><div class="val" id="avail">8</div><div class="lbl">Available</div></div>
+  <div class="stat s3"><div class="val" id="tot">0</div><div class="lbl">Parked Today</div></div>
+  <div class="stat s4"><div class="val" id="avg">--</div><div class="lbl">Avg Duration</div></div>
+</div>
+
+<div class="section-title">Parking Slots — click to toggle</div>
+<div class="grid" id="grid"></div>
+
+<div class="logsec">
+  <div class="log-header">
+    <h2>Vehicle Log</h2>
+    <span class="log-count" id="log-count">0 entries</span>
+  </div>
+  <table>
+    <thead><tr><th>Slot</th><th>Entry</th><th>Exit</th><th>Duration</th><th>Status</th></tr></thead>
+    <tbody id="logbody"><tr><td colspan="5" class="empty">No activity yet</td></tr></tbody>
+  </table>
+</div>
+
+<div class="conn">
+  <span class="dot" id="dot"></span>
+  <span id="ctxt">Connecting...</span>
+</div>
+
+<script>
+var slots=[];
+for(var i=0;i<8;i++) slots.push({id:i,occ:false,entry:null,log:[]});
+var tot=0,durs=[],logCount=0;
+
+function tf(d){return d.toLocaleTimeString();}
+function df(ms){var s=Math.floor(ms/1000),m=Math.floor(s/60),h=Math.floor(m/60);if(h>0)return h+"h "+(m%60)+"m";if(m>0)return m+"m "+(s%60)+"s";return s+"s";}
+function calcAvg(){if(!durs.length)return "--";return df(Math.round(durs.reduce(function(a,b){return a+b;},0)/durs.length));}
+
+// Clock
+function updateClock(){
+  var now=new Date();
+  document.getElementById("clock").textContent=now.toLocaleDateString()+" | "+now.toLocaleTimeString();
+}
+setInterval(updateClock,1000);updateClock();
+
+// Buzzer flash effect
+function buzzFlash(){
+  var f=document.getElementById("flash");
+  f.classList.add("active");
+  setTimeout(function(){f.classList.remove("active");},200);
+}
+
+function renderGrid(){
+  var g=document.getElementById("grid");g.innerHTML="";
+  slots.forEach(function(s,i){
+    var div=document.createElement("div");
+    div.className="slot"+(s.occ?" occ":"");
+    div.innerHTML=
+      "<div class='slot-num'>P"+(i+1)+"</div>"+
+      "<div class='circle "+(s.occ?"busy":"free")+"'></div>"+
+      "<div class='snum'>Slot "+(i+1)+"</div>"+
+      "<div class='sstate'>"+(s.occ?"OCCUPIED":"FREE")+"</div>"+
+      "<div class='stime' id='st"+i+"'></div>";
+    div.onclick=(function(x){return function(){toggle(x);};})(i);
+    g.appendChild(div);
+  });
+}
+
+function renderStats(){
+  var oc=slots.filter(function(s){return s.occ;}).length;
+  document.getElementById("avail").textContent=8-oc;
+  document.getElementById("occ_count").textContent=oc;
+  document.getElementById("tot").textContent=tot;
+  document.getElementById("avg").textContent=calcAvg();
+}
+
+function renderLog(){
+  var rows=[];
+  slots.forEach(function(s){
+    s.log.forEach(function(r){rows.push(r);});
+    if(s.occ&&s.entry)rows.push({slot:s.id+1,entry:s.entry,exit:null,ms:null,active:true});
+  });
+  rows.sort(function(a,b){return b.entry-a.entry;});
+  logCount=rows.length;
+  document.getElementById("log-count").textContent=logCount+" entr"+(logCount===1?"y":"ies");
+  var tb=document.getElementById("logbody");
+  if(!rows.length){tb.innerHTML="<tr><td colspan='5' class='empty'>No activity yet</td></tr>";return;}
+  tb.innerHTML=rows.slice(0,20).map(function(r){
+    return "<tr>"+
+      "<td>Slot "+r.slot+"</td>"+
+      "<td>"+tf(r.entry)+"</td>"+
+      "<td>"+(r.exit?tf(r.exit):"--")+"</td>"+
+      "<td>"+(r.ms!==null?df(r.ms):r.active?"ongoing":"--")+"</td>"+
+      "<td><span class='badge "+(r.active?"parked":"exited")+"'>"+(r.active?"Parked":"Exited")+"</span></td>"+
+      "</tr>";
+  }).join("");
+}
+
+function render(){renderGrid();renderStats();renderLog();}
+
+function toggle(i){
+  var s=slots[i];
+  var wasOcc=s.occ;
+  if(!s.occ){s.occ=true;s.entry=new Date();tot++;buzzFlash();}
+  else{var ex=new Date(),ms=ex-s.entry;durs.push(ms);s.log.push({slot:i+1,entry:s.entry,exit:ex,ms:ms,active:false});s.occ=false;s.entry=null;}
+  render();
+  if(window._sock)window._sock.emit("toggle_slot",{slot:i+1});
+}
+
+render();
+
+// Timer update — no full re-render
+setInterval(function(){
+  slots.forEach(function(s,i){
+    var el=document.getElementById("st"+i);
+    if(el&&s.occ&&s.entry)el.textContent=df(new Date()-s.entry);
+    else if(el)el.textContent="";
+  });
+},1000);
+
+// Socket
+var socket=io();window._sock=socket;
+socket.on("connect",function(){
+  document.getElementById("dot").className="dot on";
+  document.getElementById("ctxt").textContent="Connected to FPGA";
+});
+socket.on("disconnect",function(){
+  document.getElementById("dot").className="dot";
+  document.getElementById("ctxt").textContent="Disconnected";
+});
+socket.on("slot_update",function(data){
+  data.slots.forEach(function(bit,i){
+    var s=slots[i];
+    if(bit&&!s.occ){s.occ=true;s.entry=new Date();tot++;buzzFlash();}
+    else if(!bit&&s.occ){var ex=new Date(),ms=ex-s.entry;durs.push(ms);s.log.push({slot:s.id+1,entry:s.entry,exit:ex,ms:ms,active:false});s.occ=false;s.entry=null;}
+  });
+  render();
+});
+</script>
+</body>
+</html>
